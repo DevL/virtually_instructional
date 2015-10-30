@@ -1,0 +1,326 @@
+Your Elixir system.
+
+Exquisitely written in a language supporting abstractions that aid and shape your thoughts, concepts, and understanding.
+
+Sublimely scalable with supreme utilisation of any and all available resources.
+
+Flawless failover and fault-tolerance.
+
+Virtually indestructable.
+
+(pause)
+
+At the heart of this lies the Erlang virtual machine, or BEAM as it's more commonly called. And at the heart of the BEAM is a set of instructions codified. These are the small building blocks that your system ultimately consists of. And they look nothing like Elixir itself.
+
+Welcome to Virtually Instructional. I'm your host, Lennart Fridén, and together we will explore the language that BEAM truely talks and understands.
+
+---
+
+Let's follow the path your Elixir code takes until it's running.
+
+[Hello ElixirConf]
+
+When compiling your code, you'll get an object file typically called a BEAM file.
+
+[BEAM chunks in a hex view]
+
+The BEAM file contains a number of chunks of data. In addition to the bytecode itself, used atoms have their own chunk. So does strings.
+
+While we can examine the BEAM file, it's hard and slow work disassembling it by hand. We can compile our code, telling the compiler to output "Erlang assembly" rather than an object file.
+
+[example of Erlang assembly]
+
+This allows us to see how our Elixir code is transformed into an intermediate format before being compiled to bytecode, and now we start seeing the assembly mnemonics that more closely maps to the actual bytecode than the original Elixir code.
+
+[list of BEAM instructions]
+
+Right now, there's 158 different instructions. The latest to be added as part of Erlang release 17 deal with maps.
+
+However, this too doesn't reveal the inner machinations of the BEAM.
+
+Not even the bytecode tells the whole story. When a BEAM file is loaded, the instructions are transformed. Some are transformed from the generic form stored in the BEAM file to a specialised or more specific form. Yet others are combined into single, more efficient superinstructions.
+
+[transformed instructions]
+
+An example of the former would be replacing the generic addition instruction known by the compiler with an increment instruction only known to the runtime system.
+
+An example of a superinstruction would be combining the instructions "is_tuple" and "test_arity" into one, "is_tuple_of_arity".
+
+
+If we want to see how the BEAM interprets and transforms our code, we need to look at the state of a running system. Luckily, Erlang provides the means of this type of introspection in the form of the "df" function that resides in the "erts_debug" module.
+
+[example of disassembling a module, module/function, module/function/arity in iex]
+
+Using it, we can disassemble a loaded module from within a running system. Technically it's three functions, depending on what you wish to disassemble. A module, a function, or a function with a specific arity
+
+The df function will save the disassembled code to a .dis file. Opening this, we finally get a glimpse of the language of the BEAM.
+
+[instructional]
+
+Disassembled code follows the following pattern. First we have the memory address of the instruction, here shown as a 64-bit hexadecimal value. Next comes the instruction, consisting of two parts; the instruction name and the number and types of operands accepted. For example, a capital 'I' indicates an integer literal, whereas a lowercase 'a' denotes an atom.
+
+With this we can take a look at the disassembled code.
+
+A thankfully short function, it really only consists of two instructions. The first, "i_func_info" pretty much states that this is the beginning of the function "instructional" which has an arity of nil and resides in the module "Elixir.Virtually". That covers the last three arguments, or operands, for that instruction. The very first instruction argument is described as, and I quote from my "Erlang on Xen" source, "a mystery coming out of nowhere, probably, needed for NIFs (Native Implemented Functions)".
+
+The second instruction is an example of a super-instruction. It places the binary "Hello ElixirConf" in the first register, X0, and returns it in one go. Normally this would have been a move instruction followed by a return instruction.
+
+[Registers]
+
+Wait a second. Register. What's that? Well, in a real CPU a register is best thought of as a tiny sliver of memory that's extremely fast to access. Unlike the original Erlang virtual machine, JAM, or Joe's Abstract Machine, BEAM is a register-based virtual machine, in part mimicking a real world CPU by having virtual registers.
+
+[basic principal of a register-based VM]
+
+Typically, a series of instructions loads some data into a register, operate on it, and then store it back to memory. It's a bit like keeping several things in your head at once without having to look them up again.
+
+BEAM is far from the only register-base virtual machine out there. If you have a device running Android, then it's powered by Dalvik which is register-based. Other examples of register-based virtual machines include Lua and Parrot, the virtual machine targeting dynamic programming languages, coming out of the Perl 6 community. We'll revisit the old bird later.
+
+
+
+So if the BEAM is a register-based virtual machine, then what was JAM? It turns out it was a stack-based virtual machine.
+
+[basic principal of a stack-based VM]
+
+
+While JAM is ancient history by now, a contemporary and far more known example of a stack-based virtual machine is the Java Virtual Machine (JVM).
+
+A stack-based VM operates without the use of registers. An instruction's operands are pushed onto the stack. When fetching the next instruction to execute, it inherently indicates the number of operands to be popped from stack. Once done with whatever the instruction is meant to do, the result will be placed back on the top of the stack. Then the next instruction will be fetched and so on
+
+To make things a bit clearer, let’s implement a basic stack-based virtual machine using Elixir.
+
+[stack-based VM in Elixir]
+
+Let’s say we have some bytecode that we want to execute. The bytecode consits of a mix of instructions and data. Normally it’d be in a binary format like we saw when looking at the BEAM file, but for clarity we’ll represent the bytecode with a list. Instead of 8-bit binary opcodes, we’ll represent our instructions as atoms. For this particular example, we’ll only use integers as data.
+
+We’ll start by pushing the value 4 onto the stack, followed by the value 5. We’ll then add the top two values on the stack and place the result back on the stack. That should give us a stack of a single value; 9. Then we push the value 2 onto the stack. Lastly we multiply the two top vslues on the stack, placing the final result back on the stack. We should end with the stack having one element; the value 18.
+
+So how do we go about doing this? Well, let’s start with a public “execute/1” function that takes the list representing the bytecode and dispatches to the private "_execute/2” function, injecting an empty stack in the form of a list.
+
+Since the _execute/2 function will process a single instruction at a time and then call itself, we start with the base case of not having any bytecode to process. In that case we simply return the stack unaltered.
+
+Next up is the “push” instruction. Since it inherently is followed by the value to be pushed onto the stack, we pattern match on the instruction opcode, here the atom “push”, followed by a value. We then make a recursive call using the rest of the bytecode and the changed stack as parameters.
+
+The add and mul instructions on the other hand, only consume a single element in the bytecode. In return, they both pop the two first elements of the stack, and puts back the result on the stack.
+
+Running this, we see that we do in fact get the expected result of 18 as the only remaining part of the stack.
+
+
+That’s simple and cute. But let’s look at a real world example. Let us look at some Java.
+
+[Java example]
+
+Don’t worry, we’ll just look at a single method. You can handle it.
+
+This method will add its two arguments and multiply the sum with 2. Essentially what our toy bytecode did in the last example.
+
+Compiling this with the javac compiler results in a class file. Like a beam file it contains various sections for constants and actual bytecode. We can see that this is the case by running the class file through the javap disassembler.
+
+[disassembled Java code]
+
+I’ve added comments to show you what the stack contains after each instruction has been executed.
+
+iconst_2 will push the value 2 onto the stack. Notice that the value 2 is inherently encoded in the instruction itself. In fact, for numbers below 6 there are dedicated instructions. Beyond that we start seeing instructions and data being mixed as in our toy bytecode example.
+
+Next up we place the two arguments on the stack. “iadd” will then pop them off the stack, add them, and place the result back on the stack. The stack now holds the sum and the value 2.
+
+“imul” will pop the sum and the 2 off the stack, use them as factors, and place the product back on the stack. Finally, “ireturn” pops the product off the stack and returns it to the caller of the method.
+
+See, I told you’d survive a little bit of Java.
+
+
+Ok, so if the basic architecture of a stack-based machine is so simple, and simple as we all know is a good principal to strive for, why is the BEAM register-based?
+
+Obviously there are reasons for adopting the one or the other architecture when designing a virtual machine.
+
+[register-based vs stack-based comparison]
+
+In general, stack-based virtual machines are easier to implement, result in more compact bytecode, simpler compilers, simpler interpreters, and a minimal CPU state to keep track of. As we’ve demonstrated, you can get away with having a pointer to the next instruction to execute, i.e. a list, and a pointer to the top of the stack, i.e. another list. That's it.
+
+However, stack-based machines entail a lot of memory access. You'll be constantly loading things onto the stack whereas a register-based machine allows you to put something into the fifth register and keep it there until you need it a number of instructions later. Also, a register-based machine can have an easier time mapping its virtual registers to real registers in the CPU, thus making better use of its capabilities.
+
+In a nutshell, a stack-based VM picks simplicity over performance.
+
+
+[Article slide]
+
+In his dissertation "Virtual Machine Showdown: Stack versus Registers", Yunhe Shi, compared a register-based Java virtual machine to the ordinary stack-based one. He found that he could make it execute far fewer virtual instructions and thus accomplish the same task faster while only growing the bytecode footprint by a quarter. Threading the bytecode was a big part of that.
+
+
+[Threading code]
+
+In addition to transforming instructions, the beamfile loader also "threads" the code when loading it. Threading in this case does not refer to concurrency, but rather placing the loaded, transformed code in memory so that it in practice behaves like a series of function calls.
+
+Somewhat simplified, think of going through a massive, nested if-else expression, switching on the instruction to figure out what to do with it. If we have a few hundred different instructions, we'll spend a lot of time just dispatching to the relevant piece of code for executing the instruction at hand.
+
+Threaded code behaves rather as we imagine pattern matching behaves. We instantly find the right piece of code to execute without having to go through a plethora of other options first. This considerably speeds up execution times.
+
+Later we'll see that pattern matching actually doesn't work in this magical way, but the notion of it doing so illustrates the advantage of threaded code.
+
+At the end of the day, a purely stack-based machine picks simplicity over performance. Of course, the JVM for example then adds a ton of tricks to regain the potentially lost performance. Code hotspot analysis, multiple steps of optimisations, just-in-time compilation to native code, and so on, and so forth.
+
+
+[impractical]
+
+Let's look at a function with multiple clauses. Given an integer argument, it returns the argument plus one. Given a float, it divides it by two. Any other argument results in the atom "batman" being returned.
+
+Clearly not the most useful function ever, but it illustrates several points once we disassemble it.
+
+We only have one i_func_info, denoting that yes, this is in fact a single function. The "is_integer" instruction checks if the second operand, the X0 register, contains an integer. If so, execution continues with the next instruction. If it isn't we jump to the address indicated by the first operand.
+
+Let's assume we do get an integer. The "i_increment" instruction not only adds the two first arguments and places the result in the fourth, in this case X0 = X0 + 1, but its third argument indicates the number of "live" registers. A live register is a register that shouldn't be garbage collected. In this manner, several instructions combine some desired operation with cleaning up.
+
+With the incremented integer in X0, the "return" instruction takes us back to where the "continuation pointer" or CP register points at.
+
+What's the continuation pointer? We don't see it in the code, but when calling a function, such as this one, the call instruction will store a pointer, on the stack, to the next instruction to execute once the function call returns. This pointer is called the continuation pointer.
+
+Now, had this function not been passed an integer as argument, but rather a float, the next several instructions handle that. Let's go through them one by one.
+
+Like is_integer, is_float checks that we do have a float in X0. If not, skip this block of code.
+
+test_heap ensures that we have some free memory on the heap. Why? I’m not sure to be honest. It also indicates that we have one “live” register so X0 is not marked for garbage collection.
+
+The first “fmove” will move the floating point number from X0 into a floating point register, FR0. The second “fmove” places the value 2.0 in the FR1 register. Next up is the “i_fdiv” instruction which divides FR0 with FR1, placing the result back in FR0.
+
+A third and final “fmove” instruction copies the result back into the X0 register before we return to the calling function.
+
+Finally, if the function is called with neither an integer nor a float, we move the atom "batman" into register X0 and return control to the calling function. Once again, the two operations have been rolled into a single superinstruction.
+
+
+[x(0), y(0), fr(0-15)]
+
+In the float handling part, we encountered the use of a new type of register, FR0 and FR1. Just like many real CPU:s, the BEAM has separate registers for floating point numbers. We still need to receive and return the float in an ordinary register, but we can only perform floating point operations on floating point registers.
+
+In addition, there are two more special variables that behave like registers; tmpA and tmpB. These hold all manner of values used by arithmetic or logical operations. They're also used for building bitstrings.
+
+To make things slightly more complicated, the BEAM also can allocate space on the stack for local variables, or so called "stack slots". However, passing parameters to a function is only done through the use of the general purpose registers.
+
+In disassembled Elixir code, a stack slot is indicated by a "y" and the number of the stack slot. We've previously seen that general registers are indicated by an “x” and a number, whereas floating point registers are denoted by “fr" and a number. The tmpA and tmpB variables aren't visible in the code, but rather implicitly used by various instructions.
+
+
+[Parrot register types compared to BEAM:s]
+
+While we're on the topic of different types of registers, as an aside, the Parrot virtual machine not only has separate registers for floats, but also for integers and strings. A final "PolyMorphic Container" type of register is used for anything else.
+
+
+
+
+Okay, so far we haven't seen anything particularly unique when it comes to the BEAM instruction set. Perhaps there are some secrets hiding when it comes to a process receiving messages?
+
+[incommunicado]
+
+This function will never stop checking the mailbox. If we get a tuple with the atom “ping" and a PID, we’ll reply with the atom “pong”. All other messages are silently dropped.
+
+So how does it look like once it’s been loaded?
+
+[Incommunicado, full]
+
+Once again, let’s go through it step by step.
+
+[Incommunicado, step by step]
+
+We start off by allocating no slots on the stack and declaring no registers as “ ive”.
+
+This is a way of stating that we don't care about any argument registers so feel free to garbage collect them.
+
+With the “i_loop_rec” instruction, we move on to picking up the next message in our inbox and place it in register X0. If there is none we'll jump to a memory location that happens to be pointing to the wait instruction. As you might know, when waiting for a message to arrive in its inbox, a process is put to sleep so that it doesn’t consume any resources.
+
+Once we've received a message, we check if it's a tuple of arity 2. Behind the scenes, if X0 at least contains a tuple, it will be stored in the tmpA temporary variable.
+
+We then extract two elements from the tuple in tmpA, placing the first in X1 and the second in X2. The extract_next_element2 instruction is only given a single argument, the first register to use for the first element. It will implicitly use the next register for the second element.
+
+If the first tuple element, now in register X1, turns out to be the atom "ping" we continue.
+
+Removing the message from the inbox, we put the atom "pong" in X1. We then move the contents of X2 into X0. As you might recall, this was the second element of the received tuple, and thus the PID of the sender of the "ping" message.
+
+Subsequently we call the built-in function "send/2". As that function takes two parameters, X0 will contain the receiver of our message and X1 will contain the contents of our message; in this case the atom "pong".
+
+Finally, we'll jump ahead to the last instruction of the function in a convoluted way by NOT jumping if and only if X0 is less than itself which it obviously can't be.
+
+Now, if we didn't receive a tuple with two elements or if the first element wasn't the atom "ping", we end up at the next instruction. We remove the message and then skip ahead to the last instruction in the same convoluted manner.
+
+The last instruction, "i_call_last", will call the "incommunicado" function again.This is an example of a tail call elimination, i.e. the proper way to do tail recursion. It's a GOTO that can be considered anything but harmful.
+
+
+Given that messages are integral to the concurrency model it's not surprising to find a few instructions dealing with them.
+
+
+[VM-specific instructions]
+
+While most virtual machines have similar basic instructions for loading, storing, and manipulating data, for example adding two numbers, it's interesting to notice what different machine builders deem important enough to turn into instructions.
+
+We've already seen that BEAM has message-handling instructions. We've also seen that it has specific instructions for testing if a register contains a value of a specific type. Actually, there's a one-to-one correlation between these type checking instructions and allowed type checks in guard clauses.
+
+
+[Parrot specific instructions]
+
+Parrot comes with a number of mathematical instructions such as sine, cosine, and arctangent. Instructions that in other machines would be composed of several more primitive floating point instructions. To be entirely honest, these aren't part of the core parrot instruction set, but are dynamically loadable at runtime. In effect you can tell the VM how to behave and what instructions to understand which is pretty nifty.
+
+[Java-specific instructions, same slide]
+
+Java naturally has a number of instructions for loading and allocating new objects. My favourite is "multianewarray" which allocates space on the heap for a multidimensional array. Ideal if you want to instantiate something like a spreadsheet or a business intelligence cube. If you've ever wondered why Java has such an Enterprise-y feel to it, now you know.
+
+
+Ok, a brief glimpse of one final example before we end this show.
+
+[intractable]
+
+Looking at it from the side of Elixir, this is a deceptivly-looking function. It ought to be very short, yet when disassembled, it is the longest we've encountered yet. So when loaded into the BEAM, just how many instructions are these three lines of Elixir expanded to?
+
+[intractable, disassembled]
+
+31 to be precise. Including up to 4 function calls!
+
+[Intractable, the 4 function calls]
+
+The last two function calls are especially opaque as they invoke built-in guard functions, not through name, but by a specific memory address. That’s the second argument. If the guard clause BIF fails, then the its behaviour is dictated by the first argument which is a jump address. If given a proper address, code execution will continue from that address. In our example, we supply it with the the address zero, indicating that we’d rather have the guard throw an exception than jump somewhere.
+
+
+We're not limited to disassembling our own code. In fact, apart from built-in functions, we can pick apart any loaded module we like, be it a part of OTP, the Elixir standard library, [dissasemble Enum.each] or core Erlang modules. Or why not study the disassemblation function "df" itself? [disassemble Etlang.df]
+
+We don't have time to do more of it here and now, but it's quite fun to go spelunking deep down under the surface. If you really want to see and learn what's going on deep down in the caverns of the BEAM, this is one way of doing it.
+
+Going deeper still, requires reading BEAM's C code.
+
+ [YOU CALL THAT FUN?]
+
+Catering to your masochistic tendencies or an overly curious mind is all well and good. But is there any practical reason for doing this?
+
+No. There isn't.
+
+Assuming two things:
+
+[THE OTP TEAM ASSUMPTIONS]
+
+* The Erlang/OTP team will be around forever,
+* they will always be eager to work on the things that matter to Elixir.
+
+Right.
+
+If one does study the BEAM internals, what can be done with that knowledge?
+
+[BENEFITS]
+
+* Contribute more than superficial changes to the BEAM.
+
+If we want to see support for more functions allowed in guard clauses, chances are it takes very low-level changes.
+
+* Ensure the BEAM's future by spreading the knowledge of how it works wider.
+
+* Ensure Elixir's future by implementing alternative, yet fully compatible, Erlang virtual machines.
+
+
+Like I said, it's all about catering to your masochistic tendencies.
+
+If you consider undertaking suchan endavour, be aware that there aren't any readily available and up to date maps of the BEAM cave system. If there's a map at all, it got a good deal of empty space on it, marked with three words; hic sunt dracones. Here be dragons.
+
+Consider this talk to be a few hastily scribbled notes and observations next to that big, empty space calling out to be explored.
+
+Thank you!
+
+[END]
+
+
+
+
+
+

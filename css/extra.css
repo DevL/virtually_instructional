@@ -1,0 +1,31 @@
+ul.plus, ul.minus {
+  list-style: none;
+}
+
+ul.plus ul, ul.minus ul {
+  list-style: none;
+  font-size: 0.7em;
+}
+
+.plus li:before {
+  content: "+";
+  margin-right: 0.5em;
+  color: green;
+  font-size: 110%;
+}
+
+.minus li:before {
+  content: "–";
+  margin-right: 0.5em;
+  color: red;
+  font-size: 125%;
+}
+
+code.small {
+  font-size: 70% !important;
+  line-height: 1.2em !important;
+}
+
+div.left {
+  text-align: left;
+}
